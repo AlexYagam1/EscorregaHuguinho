@@ -105,5 +105,6 @@ InitTestScene*.unity*
 # Auto-generated cache in Assets folder
 /[Aa]ssets/[Ss]ceneDependencyCache*
 /.vscode
+/Assets/TextMesh Pro/Examples & Extras
 /Assets/TextMesh Pro/Shaders
 /Assets/TextMesh Pro
