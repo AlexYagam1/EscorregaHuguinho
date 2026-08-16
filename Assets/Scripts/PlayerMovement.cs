@@ -7,13 +7,17 @@ public class PlayerMovement : MonoBehaviour
 {
     [Header("Configurações de Movimento")]
     [SerializeField] private float slideSpeed = 10f;
-    
+
+    [Header("Configurações de Delay (Chão Comum)")]
+    [SerializeField] private float stepDelay = 0.5f;     
+    [SerializeField] private float fastStepDelay = 0.25f; 
+
     [Header("Máscaras de Colisão (Layers)")]
-    [SerializeField] private LayerMask obstacleLayer; // Parede (Camada 1)
-    [SerializeField] private LayerMask goalLayer;     // Objetivo (Camada 1)
-    [SerializeField] private LayerMask floorLayer;    // Chão Normal (Camada 0)
-    [SerializeField] private LayerMask iceLayer;      // Gelo (Camada 0)
-    [SerializeField] private LayerMask hazardLayer;   // Espinhos/Buraco (Camada -0.5)
+    [SerializeField] private LayerMask obstacleLayer; 
+    [SerializeField] private LayerMask goalLayer;     
+    [SerializeField] private LayerMask floorLayer;    
+    [SerializeField] private LayerMask iceLayer;      
+    [SerializeField] private LayerMask hazardLayer;   
 
     [Header("Input System")]
     [SerializeField] private InputActionReference moveAction;
@@ -21,14 +25,14 @@ public class PlayerMovement : MonoBehaviour
     private Vector3 slideDirection = Vector3.zero;
     private Vector3 targetPosition;
     private bool isSliding = false;
-    private float gridStep = 1f; // Tamanho do bloco na grade
+    private bool isWaitingDelay = false; 
+    private float gridStep = 1f;
 
     private void OnEnable() => moveAction.action.Enable();
     private void OnDisable() => moveAction.action.Disable();
 
     private void Start()
     {
-        // Garante que o jogador comece alinhado à grade
         targetPosition = new Vector3(
             Mathf.Round(transform.position.x),
             transform.position.y,
@@ -39,6 +43,8 @@ public class PlayerMovement : MonoBehaviour
 
     void Update()
     {
+        if (isWaitingDelay) return;
+
         if (!isSliding)
         {
             CheckInput();
@@ -54,7 +60,6 @@ public class PlayerMovement : MonoBehaviour
         Vector2 input = moveAction.action.ReadValue<Vector2>();
         if (input == Vector2.zero) return;
 
-        // Define a direção baseada no maior input (evita diagonal)
         if (Mathf.Abs(input.x) > Mathf.Abs(input.y))
         {
             slideDirection = new Vector3(Mathf.Sign(input.x), 0, 0);
@@ -64,7 +69,6 @@ public class PlayerMovement : MonoBehaviour
             slideDirection = new Vector3(0, 0, Mathf.Sign(input.y));
         }
 
-        // Antes de mover, verifica se há parede imediatamente na frente
         if (CheckObstacle(transform.position, slideDirection))
         {
             slideDirection = Vector3.zero;
@@ -73,42 +77,42 @@ public class PlayerMovement : MonoBehaviour
 
         CalculateNextTarget();
         isSliding = true;
-
     }
 
     private void MovePlayer()
     {
-        // Move suavemente em direção ao alvo da grade
         transform.position = Vector3.MoveTowards(transform.position, targetPosition, slideSpeed * Time.deltaTime);
 
-        // Se chegou ao bloco alvo, decide o próximo passo
         if (Vector3.Distance(transform.position, targetPosition) < 0.001f)
         {
-            transform.position = targetPosition; // Snapping perfeito
+            transform.position = targetPosition;
             EvaluateTileUnderneath();
         }
     }
 
     private void EvaluateTileUnderneath()
     {
-        // 1. Checa se pisou em Espinhos/Buraco
-        if (Physics.Raycast(transform.position, Vector3.down, 1f, hazardLayer))
+        // Subimos a origem do raio em 0.1 para garantir que ele comece DEPOIS do pé do Hugo e atinja o chão de forma segura
+        Vector3 rayOrigin = transform.position + Vector3.up * 0.1f;
+        float rayDistance = 1.2f;
+
+        // 1. Detecta Espinhos (Hazard)
+        if (Physics.Raycast(rayOrigin, Vector3.down, rayDistance, hazardLayer))
         {
             StartCoroutine(RestartLevel());
             return;
         }
 
-        // 2. Checa se pisou no Chão Normal (Para o movimento)
-        if (Physics.Raycast(transform.position, Vector3.down, 1f, floorLayer))
+        // 2. Detecta Chão Comum (Floor)
+        if (Physics.Raycast(rayOrigin, Vector3.down, rayDistance, floorLayer))
         {
-            StopMovement();
+            StartCoroutine(ApplyFloorDelay());
             return;
         }
 
-        // 3. Checa se pisou no Gelo (Continua deslizando)
-        if (Physics.Raycast(transform.position, Vector3.down, 1f, iceLayer))
+        // 3. Detecta Gelo (Ice)
+        if (Physics.Raycast(rayOrigin, Vector3.down, rayDistance, iceLayer))
         {
-            // Antes de continuar, verifica se o próximo bloco tem obstáculo ou objetivo
             if (CheckObstacle(transform.position, slideDirection))
             {
                 StopMovement();
@@ -117,19 +121,37 @@ public class PlayerMovement : MonoBehaviour
             {
                 CalculateNextTarget();
             }
+            return;
         }
+
+        // FALLBACK: Se o Hugo parou em um bloco sem nenhuma das Layers acima, 
+        // ele para de deslizar para não travar o jogo.
+        StopMovement();
+    }
+
+    private IEnumerator ApplyFloorDelay()
+    {
+        StopMovement();
+        isWaitingDelay = true;
+
+        bool isShiftPressed = Keyboard.current != null && 
+            (Keyboard.current.leftShiftKey.isPressed || Keyboard.current.rightShiftKey.isPressed);
+
+        float currentDelay = isShiftPressed ? fastStepDelay : stepDelay;
+
+        yield return new WaitForSeconds(currentDelay);
+
+        isWaitingDelay = false;
     }
 
     private bool CheckObstacle(Vector3 origin, Vector3 direction)
     {
-        // Verifica se há objetivo na direção do movimento
         if (Physics.Raycast(origin, direction, gridStep, goalLayer))
         {
             LoadNextLevel();
             return true;
         }
 
-        // Verifica se há parede
         return Physics.Raycast(origin, direction, gridStep, obstacleLayer);
     }
 
@@ -144,32 +166,46 @@ public class PlayerMovement : MonoBehaviour
         slideDirection = Vector3.zero;
     }
 
-    IEnumerator RestartLevel()
+    private IEnumerator RestartLevel()
     {
         yield return new WaitForSeconds(1.5f);
-        SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
+
+        if (GameSceneManager.Instance != null)
+        {
+            GameSceneManager.Instance.RestartCurrentLevel();
+        }
+        else
+        {
+            SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
+        }
     }
 
     private void LoadNextLevel()
     {
-        int nextSceneIndex = SceneManager.GetActiveScene().buildIndex + 1;
-        if (nextSceneIndex < SceneManager.sceneCountInBuildSettings)
+        if (GameSceneManager.Instance != null)
         {
-            SceneManager.LoadScene(nextSceneIndex);
+            GameSceneManager.Instance.LoadNextLevel();
         }
         else
         {
-            Debug.Log("Fim do jogo! Não há mais fases.");
+            int nextSceneIndex = SceneManager.GetActiveScene().buildIndex + 1;
+            if (nextSceneIndex < SceneManager.sceneCountInBuildSettings)
+            {
+                SceneManager.LoadScene(nextSceneIndex);
+            }
+            else
+            {
+                Debug.Log("Fim do jogo!");
+            }
         }
     }
 
     private void OnDrawGizmos()
     {
-        // Desenha o sensor para baixo
+        // Desenha o sensor corrigido no editor do Unity
         Gizmos.color = Color.blue;
-        Gizmos.DrawLine(transform.position, transform.position + Vector3.down * 1f);
+        Gizmos.DrawLine(transform.position + Vector3.up * 0.1f, (transform.position + Vector3.up * 0.1f) + Vector3.down * 1.2f);
 
-        // Desenha o sensor frontal de colisão
         if (isSliding)
         {
             Gizmos.color = Color.red;
