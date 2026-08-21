@@ -1442,6 +1442,7 @@ MonoBehaviour:
   mainMenuSceneName: Menu
   levelScenes:
   - Level01
+  - Level02
   - Level00
 --- !u!4 &1497736241
 Transform:
