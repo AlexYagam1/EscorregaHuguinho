@@ -11,3 +11,6 @@ Escorrega!
 
 <h3>Este é top jogos já feitos por mim</h3>
 <p>ignorem a tela de menu, está uma bosta mas foi feito com carinho </p>
+<p>
+  Feito para uma atividade de Rennan, meu professor da UNICAP
+</p>
